@@ -1,37 +1,56 @@
-import RiskBadge from "./RiskBadge";
-import WhyPanel from "./WhyPanel";
+export default function MessageBubble({ message }) {
 
-export default function MessageBubble({ data }) {
+  const base =
+    "animate-fade-in transition-all duration-300";
 
-  if (data.role === "user") {
+  if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="bg-blue-600 text-white px-5 py-3 rounded-xl max-w-lg">
-          {data.text}
+      <div className={`flex justify-end ${base}`}>
+        <div className="bg-blue-600 px-4 py-2 rounded-xl max-w-md">
+          {message.text}
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="bg-slate-800 border border-white/10 p-6 rounded-xl max-w-2xl">
+  if (message.mode === "chat") {
+    return (
+      <div className={`flex justify-start ${base}`}>
+        <div className="bg-gray-700 px-4 py-2 rounded-xl max-w-md">
+          {message.text}
+        </div>
+      </div>
+    );
+  }
 
-      <RiskBadge level={data.risk} />
+  if (message.mode === "scam") {
+    return (
+      <div className={`bg-gray-800 p-4 rounded-xl border border-gray-600 max-w-lg ${base}`}>
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-bold
+            ${message.risk === "HIGH" ? "bg-red-600" :
+              message.risk === "MEDIUM" ? "bg-yellow-500 text-black" :
+              "bg-green-600"}
+          `}
+        >
+          {message.risk} RISK
+        </span>
 
-      <p className="mt-4 text-slate-100">
-        {data.explanation}
-      </p>
+        <p className="mt-2">{message.explanation}</p>
 
-      <WhyPanel />
+        {message.tips?.length > 0 && (
+          <>
+            <p className="mt-3 font-semibold">Why is this risky?</p>
+            <ul className="list-disc ml-5 text-slate-300">
+              {message.tips.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    );
+  }
 
-      {data.tips?.length > 0 && (
-        <ul className="list-disc ml-5 mt-3 text-slate-300">
-          {data.tips.map((tip, i) => (
-            <li key={i}>{tip}</li>
-          ))}
-        </ul>
-      )}
-
-    </div>
-  );
+  return null;
 }

@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from app.services.ollama_service import analyze_with_ollama
 
-router = APIRouter(prefix="/api", tags=["Analysis"])
+router = APIRouter(prefix="/api")
 
 class AnalyzeRequest(BaseModel):
     message: str
