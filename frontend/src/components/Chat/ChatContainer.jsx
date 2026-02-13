@@ -7,6 +7,9 @@ export default function ChatContainer() {
 
   const [started, setStarted] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const controllerRef = useRef(null);
 
   const [messages, setMessages] = useState([
     {
@@ -23,74 +26,84 @@ export default function ChatContainer() {
   }, [messages, typing]);
 
   async function sendMessage(text) {
+
     if (!text || !text.trim()) return;
+    if (loading) return;
 
     setStarted(true);
-
-    setMessages(prev => [...prev, { role: "user", text }]);
+    setLoading(true);
     setTyping(true);
 
+    controllerRef.current = new AbortController();
+
+    setMessages(prev => [...prev, { role: "user", text }]);
+
     try {
+
       const res = await fetch("http://localhost:8000/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify({ message: text }),
+        signal: controllerRef.current.signal
       });
 
       const data = await res.json();
       setTyping(false);
 
-      // SAFE NORMAL CHAT
       if (data?.type === "chat") {
         setMessages(prev => [
           ...prev,
           {
             role: "assistant",
             mode: "chat",
-            text: typeof data.reply === "string"
-              ? data.reply
-              : data.reply?.reply || "Hello."
+            text: data.reply
           }
         ]);
-        return;
       }
 
-      // SAFE SCAM
-      if (data?.type === "scam") {
+      else if (data?.type === "scam") {
         setMessages(prev => [
           ...prev,
           {
             role: "assistant",
             mode: "scam",
             risk: data.risk || "LOW",
-            explanation: data.explanation || "No explanation provided.",
+            explanation: data.explanation || "",
             tips: Array.isArray(data.tips) ? data.tips : []
           }
         ]);
-        return;
       }
 
-      // FALLBACK
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          mode: "chat",
-          text: "Unexpected response."
-        }
-      ]);
+      else {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            mode: "chat",
+            text: "Unexpected response."
+          }
+        ]);
+      }
 
     } catch {
-      setTyping(false);
       setMessages(prev => [
         ...prev,
         {
           role: "assistant",
           mode: "chat",
-          text: "Server error."
+          text: "Response cancelled."
         }
       ]);
     }
+
+    setTyping(false);
+    setLoading(false);
+  }
+
+  function stopGeneration() {
+    controllerRef.current?.abort();
+    setTyping(false);
+    setLoading(false);
   }
 
   return (
@@ -124,7 +137,11 @@ export default function ChatContainer() {
           </div>
 
           <div className="w-[600px]">
-            <ChatInput onSend={sendMessage} />
+            <ChatInput
+              onSend={sendMessage}
+              onStop={stopGeneration}
+              disabled={loading}
+            />
           </div>
 
         </div>
@@ -134,6 +151,7 @@ export default function ChatContainer() {
         <>
           <div className="flex-1 overflow-y-auto p-6 flex justify-center">
             <div className="w-full max-w-3xl space-y-4">
+
               {messages.map((m, i) => (
                 <MessageBubble key={i} message={m} />
               ))}
@@ -141,16 +159,22 @@ export default function ChatContainer() {
               {typing && <TypingIndicator />}
 
               <div ref={bottomRef}></div>
+
             </div>
           </div>
 
           <div className="p-4 border-t border-gray-800 flex justify-center">
             <div className="w-full max-w-3xl">
-              <ChatInput onSend={sendMessage} />
+              <ChatInput
+                onSend={sendMessage}
+                onStop={stopGeneration}
+                disabled={loading}
+              />
             </div>
           </div>
         </>
       )}
+
     </div>
   );
 }

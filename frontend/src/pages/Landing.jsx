@@ -7,6 +7,7 @@ import Footer from "../components/Footer";
 
 export default function Landing() {
   return (
+    
     <div className="min-h-screen bg-gradient-to-br from-[#020617] via-[#050b18] to-[#020617] text-slate-100">
       <Navbar />
       <HeroSection />
@@ -14,6 +15,7 @@ export default function Landing() {
       <PrivacySection />
       <CTASection />
       <Footer />
+      
     </div>
   );
 }

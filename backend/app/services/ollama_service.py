@@ -8,16 +8,18 @@ def analyze_with_ollama(message: str):
     prompt = f"""
 You are TrustCheck AI.
 
-If the message is scam or phishing, return JSON:
+If the message is a scam or phishing attempt,
+return JSON in this format:
 
 {{
   "type": "scam",
-  "risk": "HIGH",
-  "explanation": "Explain why",
-  "tips": ["tip1", "tip2"]
+  "risk": "HIGH or MEDIUM or LOW",
+  "explanation": "Explain clearly",
+  "tips": ["tip1", "tip2", "tip3"]
 }}
 
-If normal conversation, return JSON:
+If the message is normal conversation,
+return JSON in this format:
 
 {{
   "type": "chat",
@@ -37,7 +39,10 @@ Message:
         }
     )
 
-    raw = res.json()["response"]
+    data = res.json()
+
+    # ✅ OLLAMA sometimes returns "response" OR "message"
+    raw = data.get("response") or data.get("message") or ""
 
     try:
         start = raw.find("{")
@@ -46,5 +51,5 @@ Message:
     except:
         return {
             "type": "chat",
-            "reply": raw
+            "reply": raw if raw else "Hello! How can I help you?"
         }
