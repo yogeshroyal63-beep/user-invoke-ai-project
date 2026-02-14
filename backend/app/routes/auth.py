@@ -1,25 +1,20 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from app.services.auth_service import (
-    create_user,
-    authenticate_user,
-    create_access_token
-)
+from app.services.auth_service import create_user, authenticate_user, create_access_token
 
-router = APIRouter(prefix="/api/auth", tags=["Auth"])
+router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-
-class LoginRequest(BaseModel):
+class AuthRequest(BaseModel):
     email: str
     password: str
 
 
 @router.post("/register")
-def register(req: RegisterRequest):
-    user = create_user(req.email, req.password)
+def register(req: AuthRequest):
+    success = create_user(req.email, req.password)
+    if not success:
+        return {"error": "User already exists"}
+
     token = create_access_token(req.email)
     return {
         "access_token": token,
@@ -28,9 +23,9 @@ def register(req: RegisterRequest):
 
 
 @router.post("/login")
-def login(req: LoginRequest):
-    user = authenticate_user(req.email, req.password)
-    if not user:
+def login(req: AuthRequest):
+    valid = authenticate_user(req.email, req.password)
+    if not valid:
         return {"error": "Invalid credentials"}
 
     token = create_access_token(req.email)

@@ -6,7 +6,9 @@ router = APIRouter(prefix="/api")
 
 class AnalyzeRequest(BaseModel):
     message: str
+    email: str | None = None   # make email optional
 
 @router.post("/analyze")
 def analyze(req: AnalyzeRequest):
-    return analyze_with_ollama(req.message)
+    result = analyze_with_ollama(req.message)
+    return result

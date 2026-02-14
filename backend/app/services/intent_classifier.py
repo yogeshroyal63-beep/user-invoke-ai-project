@@ -18,32 +18,35 @@ def classify_intent(text: str):
 
     lower = text.lower()
 
-    # Hard rules first
+    # ---------- HARD RULES ----------
     if re.search(r"(http://|https://|www\.)", lower):
-        return "URL"
+        return {"intent": "URL", "score": 70}
 
     if re.search(r"\b[a-f0-9]{64}\b", lower):
-        return "APP_OR_HASH"
+        return {"intent": "APP_OR_HASH", "score": 60}
 
     scam_words = ["congratulations", "winner", "prize", "urgent", "verify"]
     if any(w in lower for w in scam_words):
-        return "SCAM_TEXT"
+        return {"intent": "SCAM_TEXT", "score": 75}
 
     payment_words = ["send money", "transfer", "gift card", "crypto", "pay me"]
     if any(w in lower for w in payment_words):
-        return "PAYMENT_REQUEST"
+        return {"intent": "PAYMENT_REQUEST", "score": 80}
 
-    # ML fallback
+    # ---------- ML FALLBACK ----------
     result = classifier(text, LABELS)
     label = result["labels"][0]
 
     if label == "scam message":
-        return "SCAM_TEXT"
-    if label == "phishing link":
-        return "URL"
-    if label == "payment request":
-        return "PAYMENT_REQUEST"
-    if label == "malware or app":
-        return "APP_OR_HASH"
+        return {"intent": "SCAM_TEXT", "score": 70}
 
-    return "GENERAL_QUESTION"
+    if label == "phishing link":
+        return {"intent": "URL", "score": 70}
+
+    if label == "payment request":
+        return {"intent": "PAYMENT_REQUEST", "score": 75}
+
+    if label == "malware or app":
+        return {"intent": "APP_OR_HASH", "score": 65}
+
+    return {"intent": "GENERAL_QUESTION", "score": 10}

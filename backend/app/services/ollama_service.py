@@ -5,25 +5,28 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "llama3"
 
 def analyze_with_ollama(message: str):
-    prompt = f"""
-You are TrustCheck AI.
 
-If the message is a scam or phishing attempt,
-return JSON in this format:
+    prompt = f"""
+You are TrustCheck AI cybersecurity assistant.
+
+Return ONLY valid JSON.
+
+If scam:
 
 {{
   "type": "scam",
-  "risk": "HIGH or MEDIUM or LOW",
-  "explanation": "Explain clearly",
-  "tips": ["tip1", "tip2", "tip3"]
+  "category": "Phishing | OTP Scam | Fake Prize | Malware | Payment Fraud",
+  "risk": "HIGH | MEDIUM | LOW",
+  "confidence": 0-100,
+  "explanation": "Detailed explanation",
+  "tips": ["tip1","tip2","tip3"]
 }}
 
-If the message is normal conversation,
-return JSON in this format:
+If normal chat:
 
 {{
   "type": "chat",
-  "reply": "friendly helpful response"
+  "reply": "Friendly reply"
 }}
 
 Message:
@@ -32,24 +35,38 @@ Message:
 
     res = requests.post(
         OLLAMA_URL,
-        json={
-            "model": MODEL,
-            "prompt": prompt,
-            "stream": False
-        }
+        json={"model": MODEL, "prompt": prompt, "stream": False},
+        timeout=60
     )
 
-    data = res.json()
-
-    # ✅ OLLAMA sometimes returns "response" OR "message"
-    raw = data.get("response") or data.get("message") or ""
+    raw = res.json().get("response", "")
 
     try:
         start = raw.find("{")
         end = raw.rfind("}") + 1
-        return json.loads(raw[start:end])
+        clean = raw[start:end]
+        parsed = json.loads(clean)
+
+        if parsed.get("type") == "chat":
+            return {
+                "type": "chat",
+                "reply": parsed.get("reply", "Hello 👋")
+            }
+
+        if parsed.get("type") == "scam":
+            return {
+                "type": "scam",
+                "category": parsed.get("category", "Scam"),
+                "risk": parsed.get("risk", "HIGH"),
+                "confidence": parsed.get("confidence", 90),
+                "explanation": parsed.get("explanation", ""),
+                "tips": parsed.get("tips", [])
+            }
+
     except:
-        return {
-            "type": "chat",
-            "reply": raw if raw else "Hello! How can I help you?"
-        }
+        pass
+
+    return {
+        "type": "chat",
+        "reply": "Hello 👋 How can I help?"
+    }

@@ -1,11 +1,24 @@
-import requests
 import tldextract
+import requests
 import time
 
-VIRUSTOTAL_API_KEY = ""  # optional
+TRUSTED_DOMAINS = [
+    "chatgpt.com",
+    "openai.com",
+    "google.com",
+    "github.com",
+    "stackoverflow.com",
+    "microsoft.com",
+    "apple.com",
+    "amazon.com",
+    "linkedin.com",
+    "youtube.com"
+]
+
+VIRUSTOTAL_API_KEY = ""   # optional
+
 
 def domain_age_days(domain):
-
     try:
         url = f"https://api.whois.vu/?q={domain}"
         r = requests.get(url, timeout=5)
@@ -24,12 +37,22 @@ def analyze_url(url):
     ext = tldextract.extract(url)
     domain = f"{ext.domain}.{ext.suffix}"
 
+    # ✅ WHITELIST CHECK
+    if domain in TRUSTED_DOMAINS:
+        return {
+            "score": 0.0,
+            "signals": ["trusted_domain"],
+            "risk": "LOW",
+            "explanation": "This is a well-known trusted website.",
+            "tips": ["No action needed"]
+        }
+
     score = 0.0
     signals = []
 
     # Hyphen trick
     if "-" in ext.domain:
-        score += 0.3
+        score += 0.25
         signals.append("hyphen_domain")
 
     # Shorteners
@@ -56,7 +79,25 @@ def analyze_url(url):
                 score += 0.7
                 signals.append("virustotal_malicious")
 
+    # Normalize
+    score = min(score, 1.0)
+
+    if score >= 0.7:
+        risk = "HIGH"
+    elif score >= 0.4:
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+
     return {
-        "score": min(score, 1.0),
-        "signals": signals
+        "score": score,
+        "signals": signals,
+        "risk": risk,
+        "explanation": "The link shows characteristics commonly used in phishing attacks.",
+        "tips": [
+            "Do not click the link",
+            "Verify sender identity",
+            "Check domain spelling",
+            "Report the link"
+        ]
     }
