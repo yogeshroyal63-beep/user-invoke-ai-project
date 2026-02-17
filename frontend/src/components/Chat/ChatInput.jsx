@@ -25,13 +25,14 @@ export default function ChatInput({ onSend, loading, onStop }) {
     form.append("file", file);
 
     try {
-      const res = await fetch("http://localhost:8000/api/scan-image", {
+      const res = await fetch("http://localhost:8000/api/scan", {
         method: "POST",
         body: form
       });
 
       const data = await res.json();
-      onSend("[Image uploaded for scan]");
+      onSend(`[Image uploaded: ${file.name}]`);
+
     } catch {
       onSend("Image scan failed.");
     }
@@ -40,7 +41,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
   return (
     <div className="flex gap-2 items-center">
 
-      {/* Image Upload */}
       <input
         ref={fileRef}
         type="file"
@@ -56,7 +56,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
         🖼️
       </button>
 
-      {/* Text Input */}
       <input
         value={value}
         onChange={e => setValue(e.target.value)}
@@ -65,7 +64,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
         className="flex-1 bg-gray-800 text-white px-4 py-3 rounded-xl outline-none"
       />
 
-      {/* Send / Stop */}
       {!loading ? (
         <button
           onClick={handleSend}

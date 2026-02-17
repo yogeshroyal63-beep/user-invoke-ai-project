@@ -1,18 +1,27 @@
+# app/routes/image_scan.py  (update or extend)
+
 from fastapi import APIRouter, UploadFile, File
-from app.services.image_scanner import extract_text_from_image
-from app.services.ollama_service import analyze_with_ollama
+from app.services.qr_scanner import scan_qr_from_image
+from app.services.url_analyzer import analyze_url
 
 router = APIRouter(prefix="/api")
 
 @router.post("/scan-image")
 async def scan_image(file: UploadFile = File(...)):
-    text = extract_text_from_image(file.file)
+    content = await file.read()
 
-    if not text:
+    qr_result = scan_qr_from_image(content)
+
+    if qr_result["qr_found"]:
+        url_analysis = analyze_url(qr_result["decoded_data"])
         return {
-            "type": "chat",
-            "reply": "No readable text found in image."
+            "type": "image_qr",
+            "qr_data": qr_result["decoded_data"],
+            "url_analysis": url_analysis
         }
 
-    result = analyze_with_ollama(text)
-    return result
+    return {
+        "type": "image",
+        "risk": "LOW",
+        "message": "No QR code detected"
+    }

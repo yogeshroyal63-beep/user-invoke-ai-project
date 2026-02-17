@@ -10,11 +10,13 @@ def calculate_final_risk(message: str):
     url = analyze_url(message)
     llm = analyze_with_ollama(message)
 
+    llm_score = llm.get("confidence", 50)
+
     final_score = int(
         rule["score"] * 0.30 +
         intent["score"] * 0.25 +
         url["score"] * 0.20 +
-        llm["score"] * 0.25
+        llm_score * 0.25
     )
 
     if final_score >= 70:
@@ -25,9 +27,9 @@ def calculate_final_risk(message: str):
         level = "LOW"
 
     return {
-        "type": "scam",
+        "type": "security",
         "risk": level,
         "score": final_score,
-        "explanation": llm["explanation"],
-        "tips": llm["tips"]
+        "explanation": llm.get("explanation", ""),
+        "tips": llm.get("tips", [])
     }
