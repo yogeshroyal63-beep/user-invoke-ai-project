@@ -20,75 +20,60 @@ export default function ChatContainer() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typing]);
 
-  async function sendMessage(text) {
+  async function sendMessage(payload) {
 
-    if (!text || !text.trim() || typing) return;
+    if (typing) return;
 
-    const cleanText = text.trim();
+    // ================= TEXT MESSAGE =================
+    if (typeof payload === "string") {
 
-    const userMessage = {
-      role: "user",
-      mode: "chat",
-      text: cleanText
-    };
+      const cleanText = payload.trim();
+      if (!cleanText) return;
 
-    const updatedMessages = [...messages, userMessage];
+      const userMessage = {
+        role: "user",
+        mode: "chat",
+        text: cleanText
+      };
 
-    setMessages(updatedMessages);
-    setTyping(true);
+      const updatedMessages = [...messages, userMessage];
+      setMessages(updatedMessages);
+      setTyping(true);
 
-    try {
+      try {
 
-      // ✅ SEND CLEAN HISTORY STRUCTURE ONLY
-      const historyPayload = updatedMessages.map(m => ({
-        role: m.role,
-        text: m.mode === "chat"
-          ? m.text
-          : m.explanation || ""
-      }));
+        const historyPayload = updatedMessages.map(m => ({
+          role: m.role,
+          text: m.text || "[Image]"
+        }));
 
-      const res = await fetch("http://127.0.0.1:8000/api/scan", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          message: cleanText,
-          history: historyPayload,
-          email: localStorage.getItem("email") || null
-        })
-      });
+        const res = await fetch("http://127.0.0.1:8000/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: cleanText,
+            history: historyPayload
+          })
+        });
 
-      if (!res.ok) {
-        throw new Error("Backend error");
-      }
+        const data = await res.json();
+        setTyping(false);
 
-      const data = await res.json();
-      console.log("API RESPONSE:", data);
-
-      setTyping(false);
-
-      // 🔴 SCAM RESPONSE
-      if (data?.type === "scam") {
-
-        setMessages(prev => [
-          ...prev,
-          {
-            role: "assistant",
-            mode: "scam",
-            risk: data.risk || "HIGH",
-            category: data.category || "Scam",
-            confidence: typeof data.confidence === "number" ? data.confidence : 90,
-            explanation: data.explanation || "",
-            tips: Array.isArray(data.tips) ? data.tips : []
-          }
-        ]);
-
-        return;
-      }
-
-      // 🟢 NORMAL CHAT RESPONSE
-      if (data?.type === "chat") {
+        if (data?.type === "scam") {
+          setMessages(prev => [
+            ...prev,
+            {
+              role: "assistant",
+              mode: "scam",
+              risk: data.risk,
+              category: data.category,
+              confidence: data.confidence,
+              explanation: data.explanation,
+              tips: data.tips
+            }
+          ]);
+          return;
+        }
 
         setMessages(prev => [
           ...prev,
@@ -99,32 +84,91 @@ export default function ChatContainer() {
           }
         ]);
 
+      } catch {
+        setTyping(false);
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            mode: "chat",
+            text: "Server error."
+          }
+        ]);
+      }
+
+      return;
+    }
+
+    // ================= IMAGE MESSAGE =================
+    if (payload?.type === "image") {
+
+      const imageMessage = {
+        role: "user",
+        mode: "image",
+        imageUrl: payload.preview,
+        text: payload.instruction || null
+      };
+
+      setMessages(prev => [...prev, imageMessage]);
+
+      if (!payload.instruction || !payload.instruction.trim()) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            mode: "chat",
+            text: "What would you like me to analyze in this image?"
+          }
+        ]);
         return;
       }
 
-      // 🟡 UNKNOWN FORMAT
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          mode: "chat",
-          text: "Unexpected response format."
-        }
-      ]);
+      setTyping(true);
 
-    } catch (err) {
+      try {
 
-      console.error("Frontend error:", err);
-      setTyping(false);
+        const historyPayload = [
+          ...messages.map(m => ({
+            role: m.role,
+            text: m.text || "[Image]"
+          })),
+          { role: "user", text: payload.instruction }
+        ];
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          mode: "chat",
-          text: "Server error. Please try again."
-        }
-      ]);
+        const res = await fetch("http://127.0.0.1:8000/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: payload.instruction,
+            history: historyPayload
+          })
+        });
+
+        const data = await res.json();
+        setTyping(false);
+
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            mode: "chat",
+            text: data.reply || "Image analyzed."
+          }
+        ]);
+
+      } catch {
+        setTyping(false);
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            mode: "chat",
+            text: "Image analysis failed."
+          }
+        ]);
+      }
+
+      return;
     }
   }
 

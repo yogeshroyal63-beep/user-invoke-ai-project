@@ -2,10 +2,11 @@ import requests
 import json
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "llama3"
+MODEL = "qwen2.5:7b-instruct-q4_K_M"
+VISION_MODEL = "llava:13b"
 
 
-def analyze_with_ollama(message: str, history: list = None):
+def analyze_with_ollama(message: str, history: list = None, image_base64: str = None):
 
     message_clean = message.strip()
     message_lower = message_clean.lower()
@@ -14,7 +15,6 @@ def analyze_with_ollama(message: str, history: list = None):
     # MEMORY LAYER
     # ================================
 
-    # Store name
     if message_lower.startswith("my name is"):
         name = message_clean[10:].strip()
         return {
@@ -22,7 +22,6 @@ def analyze_with_ollama(message: str, history: list = None):
             "reply": f"Nice to meet you, {name}."
         }
 
-    # Recall name
     if (
         "what is my name" in message_lower
         or "say my name" in message_lower
@@ -64,6 +63,50 @@ def analyze_with_ollama(message: str, history: list = None):
         }
 
     # ================================
+    # IMAGE MODE (VISION)
+    # ================================
+
+    if image_base64:
+
+        vision_prompt = f"""
+You are an advanced vision AI.
+
+User question:
+{message_clean}
+
+Look carefully at the image.
+Answer accurately.
+If it is a known character, identify correctly.
+If unsure, say you are not certain.
+Do NOT hallucinate.
+"""
+
+        try:
+            res = requests.post(
+                OLLAMA_URL,
+                json={
+                    "model": VISION_MODEL,
+                    "prompt": vision_prompt,
+                    "images": [image_base64],
+                    "stream": False
+                },
+                timeout=120
+            )
+
+            raw = res.json().get("response", "").strip()
+
+            return {
+                "type": "chat",
+                "reply": raw
+            }
+
+        except Exception:
+            return {
+                "type": "chat",
+                "reply": "Image analysis failed."
+            }
+
+    # ================================
     # BUILD HISTORY BLOCK
     # ================================
 
@@ -75,7 +118,7 @@ def analyze_with_ollama(message: str, history: list = None):
             history_block += f"{role.upper()}: {text}\n"
 
     # ================================
-    # PROMPT
+    # SECURITY PROMPT (TEXT MODE)
     # ================================
 
     prompt = f"""
@@ -112,20 +155,30 @@ Current Message:
 """
 
     try:
+
+        payload = {
+            "model": MODEL,
+            "prompt": prompt,
+            "stream": False
+        }
+
         res = requests.post(
             OLLAMA_URL,
-            json={
-                "model": MODEL,
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=60
+            json=payload,
+            timeout=120
         )
 
         raw = res.json().get("response", "")
 
         start = raw.find("{")
         end = raw.rfind("}") + 1
+
+        if start == -1 or end == -1:
+            return {
+                "type": "chat",
+                "reply": raw.strip()
+            }
+
         clean = raw[start:end]
         parsed = json.loads(clean)
 

@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.analyze import router as analyze_router
 from app.routes.auth import router as auth_router
-from app.routes.image_scan import router as image_router
 from app.routes.url_scan import router as url_router
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.error_handler import global_exception_handler
@@ -23,7 +22,6 @@ app.include_router(unified_scan_router)
 
 app.add_middleware(RateLimitMiddleware)
 app.include_router(url_router)
-app.include_router(image_router)
 app.include_router(auth_router)
 app.include_router(analyze_router)
 
