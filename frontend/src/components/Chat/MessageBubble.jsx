@@ -1,5 +1,4 @@
 export default function MessageBubble({ message }) {
-
   if (!message) return null;
 
   const isUser = message.role === "user";
@@ -9,19 +8,23 @@ export default function MessageBubble({ message }) {
   // ================= USER =================
   if (isUser) {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-md space-y-2">
+      <div className="flex justify-end w-full">
+        <div className="max-w-lg space-y-3">
 
           {message.mode === "image" && message.imageUrl && (
             <img
               src={message.imageUrl}
               alt="uploaded"
-              className="rounded-xl border border-gray-700"
+              className="rounded-2xl border border-gray-700 shadow-md"
             />
           )}
 
           {message.text && (
-            <div className="bg-blue-600 px-4 py-2 rounded-xl break-words">
+            <div className="bg-gradient-to-br from-blue-600 to-blue-500 
+                            px-5 py-3 rounded-2xl 
+                            shadow-md 
+                            text-white 
+                            break-words">
               {message.text}
             </div>
           )}
@@ -42,38 +45,46 @@ export default function MessageBubble({ message }) {
     const tips = Array.isArray(message.tips) ? message.tips : [];
 
     return (
-      <div className="flex justify-start">
-        <div className="bg-slate-800 border border-red-600 p-5 rounded-xl max-w-xl">
+      <div className="flex justify-start w-full">
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 
+                        border border-red-500 
+                        p-6 
+                        rounded-2xl 
+                        max-w-2xl 
+                        shadow-xl 
+                        space-y-4">
 
-          <div className="flex gap-2 items-center mb-3 flex-wrap">
+          <div className="flex gap-2 items-center flex-wrap">
 
-            <span className="bg-red-600 px-2 py-1 rounded text-xs font-bold">
+            <span className="bg-red-600 px-3 py-1 rounded-full text-xs font-semibold shadow">
               {risk} RISK
             </span>
 
-            <span className="bg-yellow-500 text-black px-2 py-1 rounded text-xs font-bold">
+            <span className="bg-yellow-400 text-black px-3 py-1 rounded-full text-xs font-semibold shadow">
               {category}
             </span>
 
-            <span className="bg-blue-600 px-2 py-1 rounded text-xs font-bold">
+            <span className="bg-blue-500 px-3 py-1 rounded-full text-xs font-semibold shadow">
               {confidence}% Confidence
             </span>
 
           </div>
 
-          <p className="text-gray-200 mb-3 break-words">
+          <p className="text-gray-200 leading-relaxed break-words">
             {explanation}
           </p>
 
           {tips.length > 0 && (
-            <>
-              <h4 className="font-semibold mb-1">Safety Tips:</h4>
+            <div className="bg-slate-700/40 p-4 rounded-xl">
+              <h4 className="font-semibold mb-2 text-gray-100">
+                Safety Tips
+              </h4>
               <ul className="list-disc ml-5 text-gray-300 space-y-1">
                 {tips.map((t, i) => (
                   <li key={i}>{t}</li>
                 ))}
               </ul>
-            </>
+            </div>
           )}
 
         </div>
@@ -83,8 +94,14 @@ export default function MessageBubble({ message }) {
 
   // ================= NORMAL CHAT =================
   return (
-    <div className="flex justify-start">
-      <div className="bg-gray-700 px-4 py-2 rounded-xl max-w-md break-words">
+    <div className="flex justify-start w-full">
+      <div className="bg-slate-700 
+                      px-5 py-3 
+                      rounded-2xl 
+                      max-w-lg 
+                      shadow-md 
+                      text-gray-100 
+                      break-words">
         {message.text || message.reply || ""}
       </div>
     </div>

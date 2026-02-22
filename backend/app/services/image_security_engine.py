@@ -1,3 +1,5 @@
+# app/services/image_security_engine.py
+
 import hashlib
 import requests
 import mimetypes
@@ -5,11 +7,13 @@ import imagehash
 import numpy as np
 import cv2
 import pytesseract
-from PIL import Image
-from pyzbar.pyzbar import decode
-import io
+from PIL import Image, ImageChops, ImageEnhance
 
-VIRUSTOTAL_API_KEY = ""
+import io
+import re
+import os
+
+VIRUSTOTAL_API_KEY = os.getenv("VT_API_KEY", "")
 
 
 # ----------------------------------------
@@ -30,8 +34,7 @@ def validate_file_type(file_bytes, filename):
 # ----------------------------------------
 
 def calculate_file_hash(file_bytes):
-    sha256 = hashlib.sha256(file_bytes).hexdigest()
-    return sha256
+    return hashlib.sha256(file_bytes).hexdigest()
 
 
 # ----------------------------------------
@@ -42,15 +45,18 @@ def scan_virustotal_hash(file_hash):
     if not VIRUSTOTAL_API_KEY:
         return 0
 
-    headers = {"x-apikey": VIRUSTOTAL_API_KEY}
-    url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
-    r = requests.get(url, headers=headers)
+    try:
+        headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+        url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
+        r = requests.get(url, headers=headers, timeout=8)
 
-    if r.status_code != 200:
+        if r.status_code != 200:
+            return 0
+
+        stats = r.json()["data"]["attributes"]["last_analysis_stats"]
+        return stats.get("malicious", 0)
+    except:
         return 0
-
-    stats = r.json()["data"]["attributes"]["last_analysis_stats"]
-    return stats.get("malicious", 0)
 
 
 # ----------------------------------------
@@ -74,18 +80,7 @@ def extract_exif_metadata(image):
         return "metadata_error"
 
 
-# ----------------------------------------
-# 5. QR CODE DETECTION
-# ----------------------------------------
 
-def detect_qr_code(image_bytes):
-    image = Image.open(io.BytesIO(image_bytes))
-    decoded = decode(image)
-
-    if decoded:
-        return decoded[0].data.decode("utf-8")
-
-    return None
 
 
 # ----------------------------------------
@@ -93,47 +88,95 @@ def detect_qr_code(image_bytes):
 # ----------------------------------------
 
 def perform_ocr_scan(image_bytes):
-    image = Image.open(io.BytesIO(image_bytes))
-    text = pytesseract.image_to_string(image)
-    return text
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        text = pytesseract.image_to_string(image)
+        return text
+    except:
+        return ""
 
 
 # ----------------------------------------
-# 7. AI-GENERATED DETECTION (Heuristic)
+# 7. ERROR LEVEL ANALYSIS (ELA)
+# ----------------------------------------
+
+def perform_ela(image_bytes, quality=90):
+    try:
+        original = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        buffer = io.BytesIO()
+        original.save(buffer, "JPEG", quality=quality)
+        buffer.seek(0)
+
+        compressed = Image.open(buffer)
+        diff = ImageChops.difference(original, compressed)
+        enhancer = ImageEnhance.Brightness(diff)
+        ela_image = enhancer.enhance(20)
+
+        ela_array = np.array(ela_image)
+        return ela_array.mean()
+    except:
+        return 0
+
+
+# ----------------------------------------
+# 8. AI-GENERATED DETECTION (Heuristic)
 # ----------------------------------------
 
 def detect_ai_generated_image(image_bytes):
-    image = Image.open(io.BytesIO(image_bytes))
-    hash_val = imagehash.phash(image)
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        hash_val = imagehash.phash(image)
 
-    # heuristic threshold
-    if hash_val.hash.mean() > 0.5:
-        return 0.7  # suspicious probability
+        if hash_val.hash.mean() > 0.5:
+            return 0.7
 
-    return 0.2
+        return 0.2
+    except:
+        return 0.2
 
 
 # ----------------------------------------
-# 8. FACE ARTIFACT CHECK
+# 9. FACE ARTIFACT CHECK
 # ----------------------------------------
 
 def face_artifact_check(image_bytes):
-    image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    try:
+        image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
 
-    if image is None:
+        if image is None:
+            return False
+
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        if blur_score < 20:
+            return True
+
         return False
-
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
-
-    if blur_score < 20:
-        return True
-
-    return False
+    except:
+        return False
 
 
 # ----------------------------------------
-# 9. UNIFIED RISK ENGINE
+# 10. FREQUENCY DOMAIN ANOMALY
+# ----------------------------------------
+
+def frequency_domain_anomaly(image_bytes):
+    try:
+        image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
+        f = np.fft.fft2(image)
+        fshift = np.fft.fftshift(f)
+        magnitude = 20 * np.log(np.abs(fshift) + 1)
+
+        if magnitude.mean() > 150:
+            return True
+        return False
+    except:
+        return False
+
+
+# ----------------------------------------
+# 11. UNIFIED RISK ENGINE
 # ----------------------------------------
 
 def generate_unified_risk_score(signals):
@@ -155,6 +198,9 @@ def generate_unified_risk_score(signals):
     if signals.get("face_artifact"):
         score += 10
 
+    if signals.get("frequency_anomaly"):
+        score += 15
+
     if score >= 60:
         risk = "HIGH"
     elif score >= 30:
@@ -162,4 +208,4 @@ def generate_unified_risk_score(signals):
     else:
         risk = "LOW"
 
-    return risk, score
+    return risk, min(score, 100)

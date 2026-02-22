@@ -9,7 +9,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
   function handleSend() {
     if (loading) return;
 
-    // IMAGE SEND
     if (selectedImage) {
       onSend({
         type: "image",
@@ -24,7 +23,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
       return;
     }
 
-    // NORMAL TEXT SEND
     if (!value.trim()) return;
 
     onSend(value.trim());
@@ -48,8 +46,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
 
   return (
     <div className="flex flex-col gap-2">
-
-      {/* IMAGE PREVIEW */}
       {preview && (
         <div className="relative w-40">
           <img
@@ -70,8 +66,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
       )}
 
       <div className="flex gap-2 items-center">
-
-        {/* FILE INPUT */}
         <input
           ref={fileRef}
           type="file"
@@ -87,14 +81,13 @@ export default function ChatInput({ onSend, loading, onStop }) {
           🖼️
         </button>
 
-        {/* TEXT INPUT */}
         <input
           value={value}
           onChange={e => setValue(e.target.value)}
           onKeyDown={handleKey}
           placeholder={
             selectedImage
-              ? "Add instruction for this image (optional)..."
+              ? "Add instruction for this image..."
               : "Paste suspicious message, link, or situation..."
           }
           className="flex-1 bg-gray-800 text-white px-4 py-3 rounded-xl outline-none"
@@ -115,7 +108,6 @@ export default function ChatInput({ onSend, loading, onStop }) {
             ■
           </button>
         )}
-
       </div>
     </div>
   );

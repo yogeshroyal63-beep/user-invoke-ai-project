@@ -1,5 +1,32 @@
+# requirements.txt
+
 fastapi
 uvicorn
 requests
 pydantic
 python-dotenv
+
+# Security / Middleware
+slowapi
+python-multipart
+
+# Database
+sqlalchemy
+
+# QR & Image Processing
+opencv-python
+numpy
+pillow
+pytesseract
+
+imagehash
+
+# URL Analysis
+tldextract
+
+# ML / NLP
+transformers
+torch
+
+# Optional Threat Intel
+urllib3

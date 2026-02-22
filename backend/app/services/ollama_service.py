@@ -1,19 +1,54 @@
+# app/services/ollama_service.py
+
 import requests
 import json
+import re
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen2.5:7b-instruct-q4_K_M"
 VISION_MODEL = "llava:13b"
 
+# =====================================================
+# PROMPT FIREWALL
+# =====================================================
+
+BLOCKED_PATTERNS = [
+    "ignore previous instructions",
+    "reveal system prompt",
+    "show system prompt",
+    "bypass safety",
+    "jailbreak",
+    "act as developer",
+    "act as system",
+]
+
+
+def is_prompt_injection(text: str) -> bool:
+    lower = text.lower()
+    return any(p in lower for p in BLOCKED_PATTERNS)
+
+
+# =====================================================
+# MAIN ANALYZER
+# =====================================================
 
 def analyze_with_ollama(message: str, history: list = None, image_base64: str = None):
 
-    message_clean = message.strip()
+    message_clean = (message or "").strip()
     message_lower = message_clean.lower()
 
-    # ================================
-    # MEMORY LAYER
-    # ================================
+    # =====================================================
+    # FIREWALL CHECK
+    # =====================================================
+    if is_prompt_injection(message_clean):
+        return {
+            "type": "chat",
+            "reply": "Request blocked due to unsafe instruction pattern."
+        }
+
+    # =====================================================
+    # MEMORY LAYER (UNCHANGED)
+    # =====================================================
 
     if message_lower.startswith("my name is"):
         name = message_clean[10:].strip()
@@ -43,9 +78,9 @@ def analyze_with_ollama(message: str, history: list = None, image_base64: str = 
             "reply": "I don’t have your name yet."
         }
 
-    # ================================
+    # =====================================================
     # VAGUE MESSAGE CHECK
-    # ================================
+    # =====================================================
 
     vague_inputs = [
         "i got a strange sms",
@@ -62,23 +97,39 @@ def analyze_with_ollama(message: str, history: list = None, image_base64: str = 
             "reply": "Please paste the exact message content so I can analyze it properly."
         }
 
-    # ================================
+    # =====================================================
     # IMAGE MODE (VISION)
-    # ================================
+    # =====================================================
 
     if image_base64:
 
         vision_prompt = f"""
-You are an advanced vision AI.
+You are TrustCheck AI vision cybersecurity assistant.
 
-User question:
+User instruction:
 {message_clean}
 
-Look carefully at the image.
-Answer accurately.
-If it is a known character, identify correctly.
-If unsure, say you are not certain.
-Do NOT hallucinate.
+Analyze the image carefully.
+
+If suspicious:
+Return JSON:
+{{
+  "type": "scam",
+  "category": "Deepfake | Fraud Image | QR Scam | Suspicious Image",
+  "risk": "HIGH | MEDIUM | LOW",
+  "confidence": 0-100,
+  "explanation": "Clear explanation",
+  "tips": ["tip1","tip2","tip3"]
+}}
+
+If safe:
+Return JSON:
+{{
+  "type": "chat",
+  "reply": "Image appears safe."
+}}
+
+Return ONLY valid JSON.
 """
 
         try:
@@ -93,12 +144,18 @@ Do NOT hallucinate.
                 timeout=120
             )
 
-            raw = res.json().get("response", "").strip()
+            raw = res.json().get("response", "")
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
 
-            return {
-                "type": "chat",
-                "reply": raw
-            }
+            if start == -1 or end == -1:
+                return {
+                    "type": "chat",
+                    "reply": "Image analyzed."
+                }
+
+            parsed = json.loads(raw[start:end])
+            return parsed
 
         except Exception:
             return {
@@ -106,9 +163,9 @@ Do NOT hallucinate.
                 "reply": "Image analysis failed."
             }
 
-    # ================================
-    # BUILD HISTORY BLOCK
-    # ================================
+    # =====================================================
+    # HISTORY BLOCK
+    # =====================================================
 
     history_block = ""
     if history:
@@ -117,9 +174,9 @@ Do NOT hallucinate.
             text = h.get("text", "")
             history_block += f"{role.upper()}: {text}\n"
 
-    # ================================
+    # =====================================================
     # SECURITY PROMPT (TEXT MODE)
-    # ================================
+    # =====================================================
 
     prompt = f"""
 You are TrustCheck AI cybersecurity assistant.
@@ -179,8 +236,7 @@ Current Message:
                 "reply": raw.strip()
             }
 
-        clean = raw[start:end]
-        parsed = json.loads(clean)
+        parsed = json.loads(raw[start:end])
 
         if parsed.get("type") == "chat":
             return {

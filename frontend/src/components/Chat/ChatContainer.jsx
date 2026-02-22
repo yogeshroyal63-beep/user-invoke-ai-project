@@ -3,8 +3,10 @@ import ChatInput from "./ChatInput";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
 
-export default function ChatContainer() {
+const API_BASE = "http://127.0.0.1:8000";
+const API_KEY = "trustcheck-secret";
 
+export default function ChatContainer() {
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -21,12 +23,10 @@ export default function ChatContainer() {
   }, [messages, typing]);
 
   async function sendMessage(payload) {
-
     if (typing) return;
 
-    // ================= TEXT MESSAGE =================
+    // ================= TEXT =================
     if (typeof payload === "string") {
-
       const cleanText = payload.trim();
       if (!cleanText) return;
 
@@ -41,23 +41,30 @@ export default function ChatContainer() {
       setTyping(true);
 
       try {
-
         const historyPayload = updatedMessages.map(m => ({
           role: m.role,
           text: m.text || "[Image]"
         }));
 
-        const res = await fetch("http://127.0.0.1:8000/api/scan", {
+        const res = await fetch(`${API_BASE}/api/scan`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": API_KEY
+          },
           body: JSON.stringify({
             message: cleanText,
-            history: historyPayload
+            history: historyPayload,
+            image_base64: null
           })
         });
 
         const data = await res.json();
         setTyping(false);
+
+        if (!res.ok) {
+          throw new Error(data.error || "Request failed");
+        }
 
         if (data?.type === "scam") {
           setMessages(prev => [
@@ -65,11 +72,7 @@ export default function ChatContainer() {
             {
               role: "assistant",
               mode: "scam",
-              risk: data.risk,
-              category: data.category,
-              confidence: data.confidence,
-              explanation: data.explanation,
-              tips: data.tips
+              ...data
             }
           ]);
           return;
@@ -80,18 +83,17 @@ export default function ChatContainer() {
           {
             role: "assistant",
             mode: "chat",
-            text: data.reply || "Hello 👋"
+            text: data.reply || "No response."
           }
         ]);
-
-      } catch {
+      } catch (error) {
         setTyping(false);
         setMessages(prev => [
           ...prev,
           {
             role: "assistant",
             mode: "chat",
-            text: "Server error."
+            text: `Error: ${error.message}`
           }
         ]);
       }
@@ -99,9 +101,8 @@ export default function ChatContainer() {
       return;
     }
 
-    // ================= IMAGE MESSAGE =================
+    // ================= IMAGE =================
     if (payload?.type === "image") {
-
       const imageMessage = {
         role: "user",
         mode: "image",
@@ -111,41 +112,49 @@ export default function ChatContainer() {
 
       setMessages(prev => [...prev, imageMessage]);
 
-      if (!payload.instruction || !payload.instruction.trim()) {
-        setMessages(prev => [
-          ...prev,
-          {
-            role: "assistant",
-            mode: "chat",
-            text: "What would you like me to analyze in this image?"
-          }
-        ]);
-        return;
-      }
+      if (!payload.file) return;
 
       setTyping(true);
 
       try {
+        const base64 = await toBase64(payload.file);
 
-        const historyPayload = [
-          ...messages.map(m => ({
-            role: m.role,
-            text: m.text || "[Image]"
-          })),
-          { role: "user", text: payload.instruction }
-        ];
+        const historyPayload = [...messages, imageMessage].map(m => ({
+          role: m.role,
+          text: m.text || "[Image]"
+        }));
 
-        const res = await fetch("http://127.0.0.1:8000/api/scan", {
+        const res = await fetch(`${API_BASE}/api/scan`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": API_KEY
+          },
           body: JSON.stringify({
-            message: payload.instruction,
-            history: historyPayload
+            message: payload.instruction || "Analyze this image",
+            history: historyPayload,
+            image_base64: base64.split(",")[1]
           })
         });
 
         const data = await res.json();
         setTyping(false);
+
+        if (!res.ok) {
+          throw new Error(data.error || "Image scan failed");
+        }
+
+        if (data?.type === "scam") {
+          setMessages(prev => [
+            ...prev,
+            {
+              role: "assistant",
+              mode: "scam",
+              ...data
+            }
+          ]);
+          return;
+        }
 
         setMessages(prev => [
           ...prev,
@@ -155,26 +164,31 @@ export default function ChatContainer() {
             text: data.reply || "Image analyzed."
           }
         ]);
-
-      } catch {
+      } catch (error) {
         setTyping(false);
         setMessages(prev => [
           ...prev,
           {
             role: "assistant",
             mode: "chat",
-            text: "Image analysis failed."
+            text: `Error: ${error.message}`
           }
         ]);
       }
-
-      return;
     }
+  }
+
+  function toBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = error => reject(error);
+    });
   }
 
   return (
     <div className="h-screen bg-black text-white flex flex-col">
-
       <div className="flex-1 overflow-y-auto p-6 flex justify-center">
         <div className="w-full max-w-3xl space-y-4">
           {messages.map((m, i) => (
@@ -194,7 +208,6 @@ export default function ChatContainer() {
           />
         </div>
       </div>
-
     </div>
   );
 }

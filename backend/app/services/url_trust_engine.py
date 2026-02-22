@@ -1,12 +1,30 @@
+# app/services/url_trust_engine.py
+
 import requests
 import tldextract
 import time
 import socket
 import ssl
-import hashlib
+import os
+import re
+from difflib import SequenceMatcher
 
-VT_API_KEY = ""   # optional
-GSB_API_KEY = ""  # optional
+VT_API_KEY = os.getenv("VT_API_KEY", "")
+GSB_API_KEY = os.getenv("GSB_API_KEY", "")
+
+SUSPICIOUS_TLDS = ["zip", "mov", "tk", "xyz", "top", "live"]
+
+POPULAR_DOMAINS = [
+    "google.com",
+    "facebook.com",
+    "amazon.com",
+    "microsoft.com",
+    "apple.com",
+    "paypal.com",
+    "instagram.com",
+    "linkedin.com"
+]
+
 
 # --------------------------
 # Helpers
@@ -42,12 +60,19 @@ def check_tls(domain):
 
 def is_ip_url(domain):
     parts = domain.split(".")
-    return all(p.isdigit() for p in parts)
+    return len(parts) == 4 and all(p.isdigit() for p in parts)
 
 
 def suspicious_tld(tld):
-    bad = ["zip", "mov", "tk", "xyz", "top"]
-    return tld in bad
+    return tld in SUSPICIOUS_TLDS
+
+
+def is_typosquatted(domain: str):
+    for legit in POPULAR_DOMAINS:
+        ratio = SequenceMatcher(None, domain, legit).ratio()
+        if 0.75 < ratio < 1.0:
+            return True, legit
+    return False, None
 
 
 # --------------------------
@@ -57,34 +82,42 @@ def suspicious_tld(tld):
 def virustotal(domain):
     if not VT_API_KEY:
         return 0
-    h = {"x-apikey": VT_API_KEY}
-    r = requests.get(
-        f"https://www.virustotal.com/api/v3/domains/{domain}",
-        headers=h
-    )
-    if r.status_code != 200:
+    try:
+        h = {"x-apikey": VT_API_KEY}
+        r = requests.get(
+            f"https://www.virustotal.com/api/v3/domains/{domain}",
+            headers=h,
+            timeout=8
+        )
+        if r.status_code != 200:
+            return 0
+        stats = r.json()["data"]["attributes"]["last_analysis_stats"]
+        return stats.get("malicious", 0)
+    except:
         return 0
-    stats = r.json()["data"]["attributes"]["last_analysis_stats"]
-    return stats.get("malicious", 0)
 
 
 def google_safe_browsing(url):
     if not GSB_API_KEY:
         return False
-    body = {
-        "client": {"clientId": "trustcheck", "clientVersion": "1.0"},
-        "threatInfo": {
-            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING"],
-            "platformTypes": ["ANY_PLATFORM"],
-            "threatEntryTypes": ["URL"],
-            "threatEntries": [{"url": url}]
+    try:
+        body = {
+            "client": {"clientId": "trustcheck", "clientVersion": "1.0"},
+            "threatInfo": {
+                "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING"],
+                "platformTypes": ["ANY_PLATFORM"],
+                "threatEntryTypes": ["URL"],
+                "threatEntries": [{"url": url}]
+            }
         }
-    }
-    r = requests.post(
-        f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={GSB_API_KEY}",
-        json=body
-    )
-    return bool(r.json().get("matches"))
+        r = requests.post(
+            f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={GSB_API_KEY}",
+            json=body,
+            timeout=8
+        )
+        return bool(r.json().get("matches"))
+    except:
+        return False
 
 
 # --------------------------
@@ -120,15 +153,21 @@ def scan_url(url: str):
         score -= 25
         signals.append("ip_url")
 
-    # Hyphen trick
-    if "-" in ext.domain:
-        score -= 10
-        signals.append("hyphen_domain")
-
     # Suspicious TLD
     if suspicious_tld(ext.suffix):
         score -= 15
         signals.append("bad_tld")
+
+    # Typosquatting
+    typo_flag, legit_domain = is_typosquatted(domain)
+    if typo_flag:
+        score -= 25
+        signals.append(f"typosquatting_like_{legit_domain}")
+
+    # Keyword abuse
+    if re.search(r"(login|verify|update|secure|account|bank|password)", url.lower()):
+        score -= 10
+        signals.append("suspicious_keywords")
 
     # VirusTotal
     if virustotal(domain) > 0:
