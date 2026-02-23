@@ -1,20 +1,18 @@
-# app/main.py
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from fastapi.responses import JSONResponse
 import os
 
-from app.routes.analytics import router as analytics_router
 from app.routes.unified_scan import router as unified_scan_router
 from app.routes.url_scan import router as url_router
 from app.routes.file_scan import router as file_router
 from app.routes.auth import router as auth_router
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.error_handler import global_exception_handler
+
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -30,6 +28,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url=None
 )
+
 
 # =========================
 # SECURITY HEADERS
@@ -48,29 +47,24 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'self'; "
             "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; "
             "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
-            "img-src 'self' https://fastapi.tiangolo.com data:; "
+            "img-src 'self' data:; "
             "font-src 'self' https://cdn.jsdelivr.net; "
-            "connect-src 'self' https://cdn.jsdelivr.net;"
+            "connect-src 'self';"
         )
 
         return response
+
 
 # =========================
 # API KEY MIDDLEWARE
 # =========================
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import JSONResponse
-from starlette.requests import Request
-
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
 
-        # 🔥 Allow preflight CORS requests
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        # Allow public auth routes
         if request.url.path.startswith("/api/auth"):
             return await call_next(request)
 
@@ -84,8 +78,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         return await call_next(request)
 
+
 # =========================
-# CORS
+# MIDDLEWARE
 # =========================
 
 app.add_middleware(
@@ -106,10 +101,10 @@ app.include_router(unified_scan_router)
 app.include_router(url_router)
 app.include_router(file_router)
 app.include_router(auth_router)
-app.include_router(analytics_router)
+
 
 # =========================
-# OPENAPI SECURITY SCHEME
+# OPENAPI SECURITY
 # =========================
 
 def custom_openapi():
@@ -137,7 +132,9 @@ def custom_openapi():
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
+
 app.openapi = custom_openapi
+
 
 @app.get("/")
 def root():

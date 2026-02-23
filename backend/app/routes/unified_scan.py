@@ -6,7 +6,6 @@ import logging
 import re
 from io import BytesIO
 from PIL import Image
-from datetime import datetime
 
 from app.core.risk_engine import calculate_final_risk
 from app.services.image_security_engine import (
@@ -21,71 +20,35 @@ from app.services.image_security_engine import (
 from app.services.response_formatter import format_security_response
 from app.services.ollama_service import analyze_with_ollama
 from app.services.brand_impersonation import detect_brand_impersonation
-from app.database import cursor, conn
+
 
 logger = logging.getLogger("trustcheck")
 router = APIRouter(prefix="/api", tags=["Scan"])
 
 
-# =====================================================
+# ================================
 # REQUEST MODEL
-# =====================================================
+# ================================
 
 class ScanRequest(BaseModel):
     message: Optional[str] = ""
     history: Optional[List[dict]] = []
     image_base64: Optional[str] = None
-    user_id: Optional[str] = "anonymous"
 
 
-# =====================================================
-# DATABASE HELPERS
-# =====================================================
-
-def save_scan(user_id, message, risk, score):
-    cursor.execute(
-        "INSERT INTO scan_history (user_id, message, risk, score, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_id, message[:500], risk, score, datetime.utcnow())
-    )
-    conn.commit()
-
-
-def update_user_behavior(user_id, risk):
-    cursor.execute("SELECT * FROM user_behavior WHERE user_id=?", (user_id,))
-    row = cursor.fetchone()
-
-    if not row:
-        cursor.execute(
-            "INSERT INTO user_behavior (user_id, total_scans, high_risk_count, medium_risk_count, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (user_id, 1, 1 if risk == "HIGH" else 0, 1 if risk == "MEDIUM" else 0, datetime.utcnow())
-        )
-    else:
-        total = row[1] + 1
-        high = row[2] + (1 if risk == "HIGH" else 0)
-        medium = row[3] + (1 if risk == "MEDIUM" else 0)
-
-        cursor.execute(
-            "UPDATE user_behavior SET total_scans=?, high_risk_count=?, medium_risk_count=?, updated_at=? WHERE user_id=?",
-            (total, high, medium, datetime.utcnow(), user_id)
-        )
-
-    conn.commit()
-
-
-# =====================================================
+# ================================
 # MAIN ROUTE
-# =====================================================
+# ================================
 
 @router.post("/scan")
 async def unified_scan(req: ScanRequest):
 
     try:
         message = (req.message or "").strip()
-        user_id = req.user_id or "anonymous"
 
-        # =====================================================
+        # ============================
         # IMAGE FLOW
-        # =====================================================
+        # ============================
 
         if req.image_base64:
 
@@ -120,7 +83,7 @@ async def unified_scan(req: ScanRequest):
 
             risk, score = generate_unified_risk_score(signals)
 
-            # Explanation Logic
+            # Explanation logic
             if ai_prob > 0.85:
                 explanation = f"High probability of AI-generated image detected ({round(ai_prob*100)}%)."
             elif ocr_flag:
@@ -129,9 +92,6 @@ async def unified_scan(req: ScanRequest):
                 explanation = "Image hash matched malicious threat intelligence database."
             else:
                 explanation = "No significant manipulation indicators detected."
-
-            save_scan(user_id, "[IMAGE_UPLOAD]", risk, score)
-            update_user_behavior(user_id, risk)
 
             return format_security_response(
                 risk=risk,
@@ -147,31 +107,19 @@ async def unified_scan(req: ScanRequest):
                 signals=signals if risk != "LOW" else {}
             )
 
-        # =====================================================
+        # ============================
         # TEXT FLOW
-        # =====================================================
+        # ============================
 
         security = calculate_final_risk(message)
 
-        # Brand Impersonation Escalation
+        # Brand Impersonation Escalation (stateless)
         brand_result = detect_brand_impersonation(message)
 
         if brand_result.get("brands_detected") and brand_result.get("suspicious_actions"):
             security["risk"] = "HIGH"
             security["score"] = max(security["score"], 85)
             security["explanation"] = "Brand impersonation attempt detected with urgent action request."
-
-        # Repeat Offender Escalation
-        cursor.execute("SELECT high_risk_count FROM user_behavior WHERE user_id=?", (user_id,))
-        row = cursor.fetchone()
-
-        if row and row[0] >= 3:
-            security["risk"] = "HIGH"
-            security["score"] = max(security["score"], 85)
-            security["explanation"] = "Repeated exposure to high-risk content detected. Escalated security classification."
-
-        save_scan(user_id, message, security["risk"], security["score"])
-        update_user_behavior(user_id, security["risk"])
 
         # Normal Chat Condition
         if security["risk"] == "LOW" and security["score"] < 35:
@@ -191,18 +139,3 @@ async def unified_scan(req: ScanRequest):
     except Exception:
         logger.exception("Scan failed")
         return {"type": "chat", "reply": "Processing error occurred."}
-
-@router.get("/debug/db")
-def debug_db():
-    from app.database import cursor
-
-    cursor.execute("SELECT * FROM scan_history")
-    history = cursor.fetchall()
-
-    cursor.execute("SELECT * FROM user_behavior")
-    behavior = cursor.fetchall()
-
-    return {
-        "history": history,
-        "behavior": behavior
-    }
