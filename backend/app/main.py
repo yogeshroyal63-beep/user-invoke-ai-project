@@ -1,9 +1,11 @@
+# app/main.py
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
-from fastapi.responses import JSONResponse
 import os
 
 from app.routes.unified_scan import router as unified_scan_router
@@ -14,13 +16,24 @@ from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.error_handler import global_exception_handler
 
 
-ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+# =====================================================
+# CONFIG
+# =====================================================
 
 API_KEY = os.getenv("TRUSTCHECK_API_KEY", "trustcheck-secret")
 API_KEY_NAME = "x-api-key"
+
+# 🔥 Allow frontend + chrome extension
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "chrome-extension://nihhkmcjielnkkbbaodddplllocook",  # replace with your real extension ID
+]
+
+
+# =====================================================
+# APP INIT
+# =====================================================
 
 app = FastAPI(
     title="TrustCheck AI",
@@ -30,9 +43,9 @@ app = FastAPI(
 )
 
 
-# =========================
+# =====================================================
 # SECURITY HEADERS
-# =========================
+# =====================================================
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -49,22 +62,24 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
             "img-src 'self' data:; "
             "font-src 'self' https://cdn.jsdelivr.net; "
-            "connect-src 'self';"
+            "connect-src 'self' http://localhost:8000;"
         )
 
         return response
 
 
-# =========================
+# =====================================================
 # API KEY MIDDLEWARE
-# =========================
+# =====================================================
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
 
+        # Allow preflight
         if request.method == "OPTIONS":
             return await call_next(request)
 
+        # Allow public auth routes
         if request.url.path.startswith("/api/auth"):
             return await call_next(request)
 
@@ -79,17 +94,22 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# =========================
-# MIDDLEWARE
-# =========================
+# =====================================================
+# CORS
+# =====================================================
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization", API_KEY_NAME],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
+
+
+# =====================================================
+# REGISTER MIDDLEWARE
+# =====================================================
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(APIKeyMiddleware)
@@ -97,15 +117,20 @@ app.add_middleware(RateLimitMiddleware)
 
 app.add_exception_handler(Exception, global_exception_handler)
 
+
+# =====================================================
+# ROUTERS
+# =====================================================
+
 app.include_router(unified_scan_router)
 app.include_router(url_router)
 app.include_router(file_router)
 app.include_router(auth_router)
 
 
-# =========================
-# OPENAPI SECURITY
-# =========================
+# =====================================================
+# OPENAPI SECURITY SCHEME
+# =====================================================
 
 def custom_openapi():
     if app.openapi_schema:
@@ -135,6 +160,10 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
+
+# =====================================================
+# ROOT
+# =====================================================
 
 @app.get("/")
 def root():
