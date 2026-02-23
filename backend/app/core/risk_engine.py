@@ -1,115 +1,62 @@
-# app/core/risk_engine.py
-
-from app.core.rule_engine import rule_score
-from app.services.intent_classifier import classify_intent
-from app.services.url_analyzer import analyze_url
-from app.services.url_trust_engine import scan_url as deep_url_scan
-from app.services.payment_detector import analyze_payment
-from app.services.ollama_service import analyze_with_ollama
-from app.core.confidence import normalize_confidence
 import re
+from app.services.xss_detector import detect_xss_payload
 
 
 def calculate_final_risk(message: str):
 
-    message = message or ""
+    score = 0
+    signals = {
+        "rule_hits": [],
+        "url_signals": [],
+        "payment_flags": []
+    }
 
-    # =====================================================
-    # 1️⃣ RULE ENGINE
-    # =====================================================
-    rule = rule_score(message)
-    rule_score_value = rule.get("score", 0)
+    text = message.lower()
 
-    # =====================================================
-    # 2️⃣ INTENT CLASSIFIER
-    # =====================================================
-    intent = classify_intent(message)
-    intent_score = intent.get("score", 0)
+    # Urgency
+    urgency_hits = re.findall(r"(urgent|immediately|verify|otp|password|login now)", text)
+    score += len(urgency_hits) * 15
+    signals["rule_hits"].extend(urgency_hits)
 
-    # =====================================================
-    # 3️⃣ URL ANALYSIS (BASIC + DEEP IF PRESENT)
-    # =====================================================
-    url_score_value = 0
-    url_signals = []
-    url_risk_level = "LOW"
+    # Payment
+    payment_hits = re.findall(r"(upi|bank|account|transfer|send money|crypto|btc)", text)
+    score += len(payment_hits) * 20
+    signals["payment_flags"].extend(payment_hits)
 
-    if re.search(r"(http://|https://|www\.)", message.lower()):
-        basic_url = analyze_url(message)
-        deep_url = deep_url_scan(message)
+    # URLs
+    urls = re.findall(r"https?://[^\s]+", message)
+    if urls:
+        score += 25
+        signals["url_signals"] = urls
 
-        # Normalize deep_url score (0–100 safe score → convert to risk score)
-        deep_risk_score = 100 - deep_url.get("score", 100)
+    # XSS
+    if detect_xss_payload(message):
+        score += 60
+        signals["rule_hits"].append("xss_payload_detected")
 
-        url_score_value = int((basic_url.get("score", 0) * 0.4) + (deep_risk_score * 0.6))
-        url_signals = deep_url.get("signals", [])
-        url_risk_level = (
-            "HIGH"
-            if deep_url.get("verdict") == "HIGH_RISK"
-            else "MEDIUM"
-            if deep_url.get("verdict") == "SUSPICIOUS"
-            else "LOW"
-        )
+    # Escalation logic
+    if len(signals["rule_hits"]) >= 3:
+        score += 20
 
-    # =====================================================
-    # 4️⃣ PAYMENT ANALYSIS
-    # =====================================================
-    payment = analyze_payment(message)
-    payment_score = int(payment.get("score", 0) * 100)
-
-    # =====================================================
-    # 5️⃣ LLM SECURITY LAYER
-    # =====================================================
-    llm = analyze_with_ollama(message)
-    llm_confidence = llm.get("confidence", 50)
-    llm_explanation = llm.get("explanation", "")
-    llm_tips = llm.get("tips", [])
-
-    # =====================================================
-    # 6️⃣ FINAL WEIGHTED SCORING
-    # =====================================================
-    final_score = int(
-        rule_score_value * 0.25 +
-        intent_score * 0.20 +
-        url_score_value * 0.25 +
-        payment_score * 0.10 +
-        llm_confidence * 0.20
-    )
-
-    final_score = max(0, min(final_score, 100))
-
-    # =====================================================
-    # 7️⃣ RISK LEVEL
-    # =====================================================
-    if final_score >= 75:
-        level = "HIGH"
-    elif final_score >= 45:
-        level = "MEDIUM"
+    if score >= 90:
+        risk = "HIGH"
+    elif score >= 45:
+        risk = "MEDIUM"
     else:
-        level = "LOW"
+        risk = "LOW"
 
-    # =====================================================
-    # 8️⃣ CONFIDENCE NORMALIZATION
-    # =====================================================
-    normalized_conf = normalize_confidence(final_score)
+    confidence = min(98, 65 + score // 2)
 
-    # =====================================================
-    # 9️⃣ STRUCTURED RESPONSE
-    # =====================================================
     return {
-        "type": "scam" if level in ["HIGH", "MEDIUM"] else "chat",
-        "risk": level,
-        "score": final_score,
-        "confidence": normalized_conf,
-        "category": intent.get("intent", "Security Analysis"),
-        "signals": {
-            "rule_hits": rule.get("hits", []),
-            "url_signals": url_signals,
-            "payment_flags": payment.get("signals", [])
-        },
-        "explanation": llm_explanation if llm_explanation else "Security risk evaluated using multi-layer analysis.",
-        "tips": llm_tips if llm_tips else [
-            "Verify sender identity.",
-            "Avoid urgent payment requests.",
-            "Do not click unknown links."
-        ]
+        "risk": risk,
+        "score": score,
+        "category": "Threat Detection",
+        "explanation": "Message evaluated using enterprise threat scoring engine.",
+        "tips": [
+            "Avoid sharing credentials.",
+            "Do not trust urgent financial requests.",
+            "Verify suspicious links independently."
+        ],
+        "signals": signals,
+        "confidence": confidence
     }

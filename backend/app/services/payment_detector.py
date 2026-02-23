@@ -1,56 +1,54 @@
-# app/services/payment_detector.py
-
 import re
 
+# ===============================
+# PATTERNS
+# ===============================
 
-RISKY_WORDS = [
-    "gift card",
-    "crypto",
-    "wire transfer",
-    "wire",
-    "bitcoin",
-    "usdt",
+CRYPTO_PATTERN = r"\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b"
+ETH_PATTERN = r"\b0x[a-fA-F0-9]{40}\b"
+BANK_ACCOUNT_PATTERN = r"\b\d{12,18}\b"
+UPI_ID_PATTERN = r"\b[\w.\-]{3,}@[a-zA-Z]{2,}\b"
+
+PAYMENT_CONTEXT_WORDS = [
+    "send",
+    "transfer",
+    "pay",
+    "payment",
     "urgent",
     "immediately",
-    "send money",
-    "transfer now",
+    "now",
+    "wire"
+]
+
+RISKY_KEYWORDS = [
+    "gift card",
+    "crypto",
+    "bitcoin",
     "otp",
     "verification code"
 ]
 
-UPI_PATTERN = r"upi://pay\?([^ ]+)"
-UPI_ID_PATTERN = r"[\w.\-]{2,}@[a-zA-Z]{2,}"
 
-
-def extract_upi_params(text: str):
-    match = re.search(UPI_PATTERN, text)
-    if not match:
-        return {}
-
-    params_str = match.group(1)
-    params = {}
-
-    for part in params_str.split("&"):
-        if "=" in part:
-            k, v = part.split("=", 1)
-            params[k] = v
-
-    return params
-
+# ===============================
+# HELPER
+# ===============================
 
 def is_random_upi_id(upi_id: str):
-    # Numeric-heavy or random-looking IDs
     digits = sum(c.isdigit() for c in upi_id)
     ratio = digits / max(len(upi_id), 1)
 
     if ratio > 0.5:
         return True
 
-    if re.search(r"[a-z0-9]{10,}", upi_id.lower()):
+    if re.search(r"[a-z0-9]{8,}", upi_id.lower()):
         return True
 
     return False
 
+
+# ===============================
+# MAIN FUNCTION
+# ===============================
 
 def analyze_payment(text: str):
 
@@ -58,49 +56,60 @@ def analyze_payment(text: str):
     score = 0.0
     signals = []
 
-    # ---------------------------
-    # Keyword-based detection
-    # ---------------------------
-    for word in RISKY_WORDS:
+    # --------------------------------
+    # Context keywords
+    # --------------------------------
+
+    context_present = any(word in lower for word in PAYMENT_CONTEXT_WORDS)
+
+    for word in RISKY_KEYWORDS:
         if word in lower:
-            score += 0.1
+            score += 0.15
             signals.append(f"keyword:{word}")
 
-    # ---------------------------
-    # UPI Link Detection
-    # ---------------------------
-    upi_params = extract_upi_params(text)
+    # --------------------------------
+    # Crypto detection
+    # --------------------------------
 
-    if upi_params:
-        score += 0.3
-        signals.append("upi_link_detected")
+    if re.search(CRYPTO_PATTERN, text):
+        score += 0.5
+        signals.append("crypto_wallet_detected")
 
-        pa = upi_params.get("pa")
-        pn = upi_params.get("pn")
+    if re.search(ETH_PATTERN, text):
+        score += 0.5
+        signals.append("eth_wallet_detected")
 
-        if pa:
-            signals.append(f"upi_id:{pa}")
+    # --------------------------------
+    # Bank account detection
+    # --------------------------------
 
-            if is_random_upi_id(pa):
-                score += 0.2
-                signals.append("random_upi_id")
+    accounts = re.findall(BANK_ACCOUNT_PATTERN, text)
+    if accounts:
+        score += 0.4
+        signals.append("bank_account_detected")
 
-        if not pn:
-            score += 0.1
-            signals.append("missing_payee_name")
+        if context_present:
+            score += 0.2
 
-    # ---------------------------
-    # Direct UPI ID detection
-    # ---------------------------
-    direct_upi = re.findall(UPI_ID_PATTERN, text)
+    # --------------------------------
+    # UPI detection (context aware)
+    # --------------------------------
 
-    for upi in direct_upi:
-        score += 0.2
-        signals.append(f"upi_id_detected:{upi}")
+    upi_ids = re.findall(UPI_ID_PATTERN, text)
+
+    for upi in upi_ids:
+        signals.append(f"upi_id:{upi}")
+
+        # Base detection low weight
+        score += 0.1
 
         if is_random_upi_id(upi):
             score += 0.2
             signals.append("random_upi_id")
+
+        # Escalate ONLY if payment intent exists
+        if context_present:
+            score += 0.3
 
     score = min(score, 1.0)
 

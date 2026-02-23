@@ -1,23 +1,26 @@
 import { useState, useRef } from "react";
+import { Paperclip } from "lucide-react";
 
 export default function ChatInput({ onSend, loading, onStop }) {
   const [value, setValue] = useState("");
-  const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const fileRef = useRef(null);
 
   function handleSend() {
     if (loading) return;
 
-    if (selectedImage) {
+    if (selectedFile) {
+      const isImage = selectedFile.type.startsWith("image/");
+
       onSend({
-        type: "image",
-        file: selectedImage,
-        preview: preview,
+        type: isImage ? "image" : "file",
+        file: selectedFile,
+        preview,
         instruction: value.trim()
       });
 
-      setSelectedImage(null);
+      setSelectedFile(null);
       setPreview(null);
       setValue("");
       return;
@@ -36,49 +39,81 @@ export default function ChatInput({ onSend, loading, onStop }) {
     }
   }
 
-  function handleImageSelect(e) {
+  function handleFileSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    setSelectedImage(file);
-    setPreview(URL.createObjectURL(file));
+    setSelectedFile(file);
+
+    if (file.type.startsWith("image/")) {
+      setPreview(URL.createObjectURL(file));
+    } else {
+      setPreview(null);
+    }
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {preview && (
-        <div className="relative w-40">
-          <img
-            src={preview}
-            alt="preview"
-            className="rounded-lg border border-gray-700"
-          />
+    <div className="flex flex-col gap-3">
+
+      {selectedFile && (
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 
+                        border border-slate-700 
+                        p-4 rounded-2xl 
+                        flex items-center justify-between 
+                        shadow-lg">
+
+          <div className="flex items-center gap-4">
+
+            {preview ? (
+              <img
+                src={preview}
+                alt="preview"
+                className="w-16 h-16 object-cover rounded-xl border border-slate-600 shadow"
+              />
+            ) : (
+              <div className="bg-slate-700 px-4 py-2 rounded-xl text-sm text-gray-300 shadow">
+                {selectedFile.name}
+              </div>
+            )}
+
+            <div className="flex flex-col">
+              <span className="text-sm text-gray-200 font-medium">
+                {selectedFile.name}
+              </span>
+              <span className="text-xs text-gray-500">
+                {(selectedFile.size / 1024).toFixed(1)} KB
+              </span>
+            </div>
+
+          </div>
+
           <button
             onClick={() => {
-              setSelectedImage(null);
+              setSelectedFile(null);
               setPreview(null);
             }}
-            className="absolute top-1 right-1 bg-black bg-opacity-70 text-white rounded-full px-2"
+            className="text-red-400 hover:text-red-300 text-sm font-medium"
           >
-            ✕
+            Remove
           </button>
+
         </div>
       )}
 
-      <div className="flex gap-2 items-center">
+      <div className="flex gap-3 items-center">
+
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
           hidden
-          onChange={handleImageSelect}
+          onChange={handleFileSelect}
         />
 
         <button
           onClick={() => fileRef.current.click()}
-          className="bg-gray-700 px-3 py-2 rounded-lg hover:bg-gray-600"
+          className="bg-slate-700 p-3 rounded-2xl hover:bg-slate-600 transition shadow-md"
         >
-          🖼️
+          <Paperclip size={18} />
         </button>
 
         <input
@@ -86,28 +121,35 @@ export default function ChatInput({ onSend, loading, onStop }) {
           onChange={e => setValue(e.target.value)}
           onKeyDown={handleKey}
           placeholder={
-            selectedImage
-              ? "Add instruction for this image..."
-              : "Paste suspicious message, link, or situation..."
+            selectedFile
+              ? "Add instruction for this file (optional)..."
+              : "Paste suspicious message, link, or upload file..."
           }
-          className="flex-1 bg-gray-800 text-white px-4 py-3 rounded-xl outline-none"
+          className="flex-1 bg-slate-800 text-white px-5 py-3 rounded-2xl outline-none shadow-inner"
         />
 
         {!loading ? (
           <button
             onClick={handleSend}
-            className="bg-blue-600 px-4 py-3 rounded-xl hover:bg-blue-500"
+            className="bg-gradient-to-br from-blue-600 to-blue-500 
+                       px-6 py-3 rounded-2xl 
+                       hover:from-blue-500 hover:to-blue-400 
+                       transition shadow-md"
           >
             ➤
           </button>
         ) : (
           <button
             onClick={onStop}
-            className="bg-blue-600 px-4 py-3 rounded-xl"
+            className="bg-gradient-to-br from-blue-600 to-blue-500 
+                       px-6 py-3 rounded-2xl 
+                       hover:from-red-500 hover:to-red-400 
+                       transition shadow-md text-white text-lg"
           >
             ■
           </button>
         )}
+
       </div>
     </div>
   );

@@ -111,7 +111,6 @@ export default function ChatContainer() {
       };
 
       setMessages(prev => [...prev, imageMessage]);
-
       if (!payload.file) return;
 
       setTyping(true);
@@ -162,6 +161,61 @@ export default function ChatContainer() {
             role: "assistant",
             mode: "chat",
             text: data.reply || "Image analyzed."
+          }
+        ]);
+      } catch (error) {
+        setTyping(false);
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            mode: "chat",
+            text: `Error: ${error.message}`
+          }
+        ]);
+      }
+
+      return;
+    }
+
+    // ================= FILE =================
+    if (payload?.type === "file") {
+      const file = payload.file;
+
+      const fileMessage = {
+        role: "user",
+        mode: "file",
+        text: payload.instruction || file.name
+      };
+
+      setMessages(prev => [...prev, fileMessage]);
+      setTyping(true);
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch(`${API_BASE}/api/scan-file`, {
+          method: "POST",
+          headers: {
+            "x-api-key": API_KEY
+          },
+          body: formData
+        });
+
+        const data = await res.json();
+        setTyping(false);
+
+        if (!res.ok) {
+          throw new Error(data.error || "File scan failed");
+        }
+
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            mode: "scam",
+            ...data
           }
         ]);
       } catch (error) {

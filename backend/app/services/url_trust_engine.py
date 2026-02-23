@@ -1,53 +1,28 @@
 # app/services/url_trust_engine.py
 
-import requests
-import tldextract
-import time
+import re
+import whois
 import socket
 import ssl
-import os
-import re
-from difflib import SequenceMatcher
-
-VT_API_KEY = os.getenv("VT_API_KEY", "")
-GSB_API_KEY = os.getenv("GSB_API_KEY", "")
-
-SUSPICIOUS_TLDS = ["zip", "mov", "tk", "xyz", "top", "live"]
-
-POPULAR_DOMAINS = [
-    "google.com",
-    "facebook.com",
-    "amazon.com",
-    "microsoft.com",
-    "apple.com",
-    "paypal.com",
-    "instagram.com",
-    "linkedin.com"
-]
+import math
+from urllib.parse import urlparse
+from datetime import datetime
 
 
-# --------------------------
-# Helpers
-# --------------------------
-
-def domain_age(domain):
+def get_domain_age(domain):
     try:
-        r = requests.get(f"https://api.whois.vu/?q={domain}", timeout=6)
-        data = r.json()
-        created = data.get("created")
-        if not created:
-            return None
-        ts = time.mktime(time.strptime(created, "%Y-%m-%d"))
-        return (time.time() - ts) / 86400
+        w = whois.whois(domain)
+        creation = w.creation_date
+        if isinstance(creation, list):
+            creation = creation[0]
+        if creation:
+            return (datetime.now() - creation).days
     except:
-        return None
+        pass
+    return None
 
 
-def has_https(url):
-    return url.startswith("https://")
-
-
-def check_tls(domain):
+def check_ssl(domain):
     try:
         ctx = ssl.create_default_context()
         with ctx.wrap_socket(socket.socket(), server_hostname=domain) as s:
@@ -58,139 +33,68 @@ def check_tls(domain):
         return False
 
 
-def is_ip_url(domain):
-    parts = domain.split(".")
-    return len(parts) == 4 and all(p.isdigit() for p in parts)
-
-
-def suspicious_tld(tld):
-    return tld in SUSPICIOUS_TLDS
-
-
-def is_typosquatted(domain: str):
-    for legit in POPULAR_DOMAINS:
-        ratio = SequenceMatcher(None, domain, legit).ratio()
-        if 0.75 < ratio < 1.0:
-            return True, legit
-    return False, None
-
-
-# --------------------------
-# Reputation APIs
-# --------------------------
-
-def virustotal(domain):
-    if not VT_API_KEY:
-        return 0
+def reverse_dns(domain):
     try:
-        h = {"x-apikey": VT_API_KEY}
-        r = requests.get(
-            f"https://www.virustotal.com/api/v3/domains/{domain}",
-            headers=h,
-            timeout=8
-        )
-        if r.status_code != 200:
-            return 0
-        stats = r.json()["data"]["attributes"]["last_analysis_stats"]
-        return stats.get("malicious", 0)
+        ip = socket.gethostbyname(domain)
+        host = socket.gethostbyaddr(ip)
+        return host[0]
     except:
-        return 0
+        return None
 
 
-def google_safe_browsing(url):
-    if not GSB_API_KEY:
-        return False
-    try:
-        body = {
-            "client": {"clientId": "trustcheck", "clientVersion": "1.0"},
-            "threatInfo": {
-                "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING"],
-                "platformTypes": ["ANY_PLATFORM"],
-                "threatEntryTypes": ["URL"],
-                "threatEntries": [{"url": url}]
-            }
-        }
-        r = requests.post(
-            f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={GSB_API_KEY}",
-            json=body,
-            timeout=8
-        )
-        return bool(r.json().get("matches"))
-    except:
-        return False
+def calculate_entropy(domain):
+    prob = [float(domain.count(c)) / len(domain) for c in set(domain)]
+    return -sum([p * math.log(p) / math.log(2.0) for p in prob])
 
 
-# --------------------------
-# MAIN ENGINE
-# --------------------------
+def scan_url(url):
 
-def scan_url(url: str):
-
-    ext = tldextract.extract(url)
-    domain = f"{ext.domain}.{ext.suffix}"
-
-    score = 100
+    score = 0
     signals = []
 
-    # HTTPS
-    if not has_https(url):
-        score -= 15
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+
+    if url.startswith("http://"):
+        score += 20
         signals.append("no_https")
 
-    # TLS
-    if not check_tls(domain):
-        score -= 10
-        signals.append("bad_tls")
+    if re.search(r"\d+\.\d+\.\d+\.\d+", domain):
+        score += 40
+        signals.append("ip_address_link")
 
-    # Domain age
-    age = domain_age(domain)
-    if age and age < 30:
-        score -= 20
+    suspicious_tlds = [".xyz", ".tk", ".ru", ".cn", ".top"]
+    if any(domain.endswith(tld) for tld in suspicious_tlds):
+        score += 30
+        signals.append("suspicious_tld")
+
+    age = get_domain_age(domain)
+    if age is not None and age < 30:
+        score += 40
         signals.append("new_domain")
 
-    # IP URL
-    if is_ip_url(ext.domain):
-        score -= 25
-        signals.append("ip_url")
+    if not check_ssl(domain):
+        score += 20
+        signals.append("invalid_ssl")
 
-    # Suspicious TLD
-    if suspicious_tld(ext.suffix):
-        score -= 15
-        signals.append("bad_tld")
+    rdns = reverse_dns(domain)
+    if rdns and domain not in rdns:
+        score += 20
+        signals.append("reverse_dns_mismatch")
 
-    # Typosquatting
-    typo_flag, legit_domain = is_typosquatted(domain)
-    if typo_flag:
-        score -= 25
-        signals.append(f"typosquatting_like_{legit_domain}")
+    if calculate_entropy(domain) > 4:
+        score += 25
+        signals.append("high_entropy")
 
-    # Keyword abuse
-    if re.search(r"(login|verify|update|secure|account|bank|password)", url.lower()):
-        score -= 10
-        signals.append("suspicious_keywords")
-
-    # VirusTotal
-    if virustotal(domain) > 0:
-        score -= 40
-        signals.append("virustotal_flag")
-
-    # Google Safe Browsing
-    if google_safe_browsing(url):
-        score -= 40
-        signals.append("google_flag")
-
-    score = max(score, 0)
-
-    if score >= 75:
-        verdict = "SAFE"
-    elif score >= 40:
+    if score >= 90:
+        verdict = "HIGH_RISK"
+    elif score >= 50:
         verdict = "SUSPICIOUS"
     else:
-        verdict = "HIGH_RISK"
+        verdict = "SAFE"
 
     return {
-        "url": url,
-        "score": score,
         "verdict": verdict,
+        "score": score,
         "signals": signals
     }
