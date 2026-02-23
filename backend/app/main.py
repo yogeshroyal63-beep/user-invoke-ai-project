@@ -8,6 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 import os
 
+from app.routes.analytics import router as analytics_router
 from app.routes.unified_scan import router as unified_scan_router
 from app.routes.url_scan import router as url_router
 from app.routes.file_scan import router as file_router
@@ -105,6 +106,7 @@ app.include_router(unified_scan_router)
 app.include_router(url_router)
 app.include_router(file_router)
 app.include_router(auth_router)
+app.include_router(analytics_router)
 
 # =========================
 # OPENAPI SECURITY SCHEME

@@ -40,17 +40,20 @@ export default function ChatInput({ onSend, loading, onStop }) {
   }
 
   function handleFileSelect(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+  const file = e.target.files[0];
+  if (!file) return;
 
-    setSelectedFile(file);
+  setSelectedFile(file);
 
-    if (file.type.startsWith("image/")) {
-      setPreview(URL.createObjectURL(file));
-    } else {
-      setPreview(null);
-    }
+  if (file.type.startsWith("image/")) {
+    setPreview(URL.createObjectURL(file));
+  } else {
+    setPreview(null);
   }
+
+  // 🔥 CRITICAL FIX: allow same file to be selected again
+  e.target.value = "";
+}
 
   return (
     <div className="flex flex-col gap-3">

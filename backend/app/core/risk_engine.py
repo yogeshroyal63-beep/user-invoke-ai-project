@@ -1,62 +1,101 @@
+# app/core/risk_engine.py
+
 import re
-from app.services.xss_detector import detect_xss_payload
+from app.services.brand_impersonation import detect_brand_impersonation
 
 
 def calculate_final_risk(message: str):
 
+    message = message or ""
+    lower = message.lower()
     score = 0
+
     signals = {
         "rule_hits": [],
         "url_signals": [],
         "payment_flags": []
     }
 
-    text = message.lower()
+    # =============================
+    # URL Detection
+    # =============================
 
-    # Urgency
-    urgency_hits = re.findall(r"(urgent|immediately|verify|otp|password|login now)", text)
-    score += len(urgency_hits) * 15
-    signals["rule_hits"].extend(urgency_hits)
-
-    # Payment
-    payment_hits = re.findall(r"(upi|bank|account|transfer|send money|crypto|btc)", text)
-    score += len(payment_hits) * 20
-    signals["payment_flags"].extend(payment_hits)
-
-    # URLs
-    urls = re.findall(r"https?://[^\s]+", message)
+    urls = re.findall(r"(https?://[^\s]+)", lower)
     if urls:
-        score += 25
-        signals["url_signals"] = urls
+        score += 30
+        signals["url_signals"].extend(urls)
 
-    # XSS
-    if detect_xss_payload(message):
-        score += 60
-        signals["rule_hits"].append("xss_payload_detected")
+    # =============================
+    # Payment Keywords
+    # =============================
 
-    # Escalation logic
-    if len(signals["rule_hits"]) >= 3:
-        score += 20
+    payment_keywords = ["upi", "wallet", "transfer", "bank", "bitcoin", "crypto"]
 
-    if score >= 90:
+    for word in payment_keywords:
+        if word in lower:
+            score += 20
+            signals["payment_flags"].append(word)
+
+    # =============================
+    # Scam / Urgency Words
+    # =============================
+
+    scam_words = ["urgent", "verify", "otp", "login", "password", "suspended"]
+
+    for word in scam_words:
+        if word in lower:
+            score += 15
+            signals["rule_hits"].append(word)
+
+    # =============================
+    # Brand Impersonation
+    # =============================
+
+    brand_result = detect_brand_impersonation(message)
+
+    if brand_result.get("typosquat_detected"):
+        score += 50
+        signals["rule_hits"].extend(brand_result["typosquat_detected"])
+
+    if brand_result.get("brands_detected") and brand_result.get("suspicious_actions"):
+        score += 40
+        for brand in brand_result["brands_detected"]:
+            signals["rule_hits"].append(f"{brand}_impersonation")
+
+    # =============================
+    # Escalation Logic
+    # =============================
+
+    if score >= 70 and "otp" in lower:
+        score += 15
+
+    # =============================
+    # Final Risk Mapping
+    # =============================
+
+    if score >= 85:
         risk = "HIGH"
     elif score >= 45:
         risk = "MEDIUM"
     else:
         risk = "LOW"
 
-    confidence = min(98, 65 + score // 2)
+    confidence = min(95, 50 + score // 2)
+
+    explanation = "Message evaluated using multi-layer behavioral and threat scoring engine."
+
+    tips = [
+        "Avoid sharing OTP, passwords or verification codes.",
+        "Do not click unknown links.",
+        "Verify suspicious requests independently."
+    ]
 
     return {
         "risk": risk,
         "score": score,
+        "confidence": confidence,
         "category": "Threat Detection",
-        "explanation": "Message evaluated using enterprise threat scoring engine.",
-        "tips": [
-            "Avoid sharing credentials.",
-            "Do not trust urgent financial requests.",
-            "Verify suspicious links independently."
-        ],
         "signals": signals,
-        "confidence": confidence
+        "explanation": explanation,
+        "tips": tips
     }
